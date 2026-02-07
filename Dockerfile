@@ -28,9 +28,9 @@ COPY backend/build.rs ./backend/
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 # Build native binary (Alpine uses musl by default)
+# Using default host target (x86_64-unknown-linux-musl on Alpine)
+# Proc-macros will be compiled for host, binary for musl
 WORKDIR /app/backend
-# Static link C runtime for portability
-ENV RUSTFLAGS="-C target-feature=+crt-static"
 RUN cargo build --release && \
     cp target/release/home-server-navigator /tmp/home-server-navigator
 
