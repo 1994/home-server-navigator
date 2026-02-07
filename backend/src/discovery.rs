@@ -1,11 +1,12 @@
 use crate::models::{
-    humanize_service_name, infer_protocol_from_port, service_id, DiscoveryStatusInfo, ServiceEntry,
+    humanize_service_name, service_id, DiscoveryStatusInfo, ServiceEntry, ServiceProtocol,
     ServiceSource, ServiceStatus,
 };
 use anyhow::Result;
 use chrono::Utc;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 use tokio::process::Command;
 
 const GROUP_SYSTEM: &str = "系统";
@@ -16,15 +17,26 @@ const GROUP_PHOTOS: &str = "照片";
 const GROUP_MONITORING: &str = "监控";
 const GROUP_OTHER: &str = "其他";
 
+const HTTP_DETECTION_TIMEOUT: Duration = Duration::from_secs(3);
+
 #[derive(Debug, Clone)]
 pub struct DiscoveryEngine {
     default_host: String,
+    http_client: reqwest::Client,
 }
 
 impl DiscoveryEngine {
     pub fn new(default_host: impl Into<String>) -> Self {
+        let http_client = reqwest::Client::builder()
+            .timeout(HTTP_DETECTION_TIMEOUT)
+            .danger_accept_invalid_certs(true) // Self-signed certs are common in home servers
+            .redirect(reqwest::redirect::Policy::limited(3))
+            .build()
+            .expect("Failed to build HTTP client");
+
         Self {
             default_host: default_host.into(),
+            http_client,
         }
     }
 
@@ -44,7 +56,9 @@ impl DiscoveryEngine {
         let listen_map = collect_listen_ports().await?;
         summary.matched_ports = listen_map.values().map(std::vec::Vec::len).sum();
 
-        let mut discovered = Vec::new();
+        // Build service candidates and detect protocols concurrently
+        let mut detection_tasks = Vec::new();
+
         for (unit, status) in units {
             let cleaned_name = unit.trim().to_string();
             let key = cleaned_name.trim_end_matches(".service").to_lowercase();
@@ -60,12 +74,31 @@ impl DiscoveryEngine {
                 .unwrap_or_default();
 
             let primary_port = select_primary_port(&ports);
-            let protocol = infer_protocol_from_port(primary_port);
+            let host = self.default_host.clone();
+            let client = self.http_client.clone();
+            
+            // Create detection task for each service
+            let detection = async move {
+                let protocol = if let Some(port) = primary_port {
+                    detect_protocol(&client, &host, port).await
+                } else {
+                    ServiceProtocol::Other
+                };
+                (cleaned_name, status, primary_port, protocol)
+            };
+            detection_tasks.push(detection);
+        }
 
+        // Run all detections concurrently
+        let detection_results = futures::future::join_all(detection_tasks).await;
+
+        // Build service entries from results
+        let mut discovered = Vec::new();
+        for (unit, status, primary_port, protocol) in detection_results {
             discovered.push(ServiceEntry {
-                id: service_id(&cleaned_name),
-                service_name: cleaned_name.clone(),
-                display_name: humanize_service_name(&cleaned_name),
+                id: service_id(&unit),
+                service_name: unit.clone(),
+                display_name: humanize_service_name(&unit),
                 description: None,
                 host: self.default_host.clone(),
                 port: primary_port,
@@ -92,6 +125,50 @@ impl DiscoveryEngine {
         summary.discovered_services = discovered.len();
         summary.last_finished_at = Some(Utc::now());
         Ok((discovered, summary))
+    }
+}
+
+/// Detect whether a port serves HTTP, HTTPS, or TCP by making actual requests
+async fn detect_protocol(client: &reqwest::Client, host: &str, port: u16) -> ServiceProtocol {
+    // First try HTTPS (common for home servers with self-signed certs)
+    let https_url = format!("https://{}:{}", host, port);
+    if let Ok(true) = is_http_response(client, &https_url).await {
+        return ServiceProtocol::Https;
+    }
+
+    // Then try HTTP
+    let http_url = format!("http://{}:{}", host, port);
+    if let Ok(true) = is_http_response(client, &http_url).await {
+        return ServiceProtocol::Http;
+    }
+
+    // Not HTTP/HTTPS, treat as TCP
+    ServiceProtocol::Tcp
+}
+
+/// Check if the URL returns a valid HTTP response
+async fn is_http_response(client: &reqwest::Client, url: &str) -> Result<bool> {
+    match client.get(url).send().await {
+        Ok(response) => {
+            // Check if it looks like an HTTP response
+            let status = response.status();
+            // Any valid HTTP status code (2xx, 3xx, 4xx, 5xx) indicates it's HTTP
+            Ok(status.as_u16() > 0 && status.as_u16() < 600)
+        }
+        Err(e) => {
+            // Check if it's an HTTP protocol error (not connection refused)
+            // Connection refused means nothing is listening
+            // Other errors might indicate HTTP is working but with issues
+            let err_str = e.to_string().to_lowercase();
+            if err_str.contains("connection refused") 
+                || err_str.contains("timeout") 
+                || err_str.contains("unable to connect") {
+                Ok(false)
+            } else {
+                // Likely an HTTP protocol error (cert issue, etc.)
+                Ok(true)
+            }
+        }
     }
 }
 
