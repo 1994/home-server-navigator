@@ -18,14 +18,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
-          - target: x86_64-unknown-linux-gnu
+          # Linux x86_64 (musl static)
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             binary_name: home-server-navigator
             asset_name: home-server-navigator-linux-x86_64
           
-          # Linux aarch64 (ARM64)
-          - target: aarch64-unknown-linux-gnu
+          # Linux aarch64 ARM64 (musl static)
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             binary_name: home-server-navigator
             asset_name: home-server-navigator-linux-aarch64
@@ -59,11 +59,17 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Install musl tools (Linux x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          sudo apt-get install -y musl-tools
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -78,20 +84,31 @@ jobs:
           npm ci
           npm run build
 
-      # 构建后端（Linux ARM64 使用交叉编译）
-      - name: Build backend (native)
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
+      # 构建后端（Linux x86_64 musl）
+      - name: Build backend (Linux x86_64 musl)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         working-directory: ./backend
         run: cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_DIR: ./target
+          RUSTFLAGS: "-C target-feature=+crt-static"
 
-      - name: Build backend (cross)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      # 构建后端（Linux ARM64 musl）
+      - name: Build backend (Linux ARM64 musl)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
         working-directory: ./backend
         run: |
-          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc
           cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_DIR: ./target
+          RUSTFLAGS: "-C target-feature=+crt-static"
+
+      # 构建后端（macOS）
+      - name: Build backend (macOS)
+        if: contains(matrix.target, 'darwin')
+        working-directory: ./backend
+        run: cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_DIR: ./target
 
