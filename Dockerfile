@@ -17,9 +17,6 @@ FROM rust:1.75-alpine AS backend-builder
 # Install build dependencies
 RUN apk add --no-cache musl-dev pkgconfig perl make
 
-# Install musl target
-RUN rustup target add x86_64-unknown-linux-musl
-
 WORKDIR /app
 
 # Copy backend files
@@ -30,10 +27,12 @@ COPY backend/build.rs ./backend/
 # Copy frontend build to project root (where build.rs expects it)
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-# Build static binary
+# Build native binary (Alpine uses musl by default)
 WORKDIR /app/backend
-ENV RUSTFLAGS="-C target-feature=-crt-static"
-RUN cargo build --release --target x86_64-unknown-linux-musl
+# Static link C runtime for portability
+ENV RUSTFLAGS="-C target-feature=+crt-static"
+RUN cargo build --release && \
+    cp target/release/home-server-navigator /tmp/home-server-navigator
 
 # Stage 3: Final minimal image
 FROM alpine:3.19
@@ -45,7 +44,7 @@ RUN apk add --no-cache ca-certificates
 RUN adduser -D -u 1000 hsn
 
 # Copy binary
-COPY --from=backend-builder /app/backend/target/x86_64-unknown-linux-musl/release/home-server-navigator /usr/local/bin/home-server-navigator
+COPY --from=backend-builder /tmp/home-server-navigator /usr/local/bin/home-server-navigator
 
 # Create data directory
 RUN mkdir -p /data && chown hsn:hsn /data
