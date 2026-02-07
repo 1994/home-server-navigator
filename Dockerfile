@@ -15,28 +15,40 @@ RUN npm run build
 FROM rust:1.75-alpine AS backend-builder
 
 # Install build dependencies
-RUN apk add --no-cache musl-dev
+RUN apk add --no-cache musl-dev pkgconfig perl make
 
-WORKDIR /app/backend
-COPY backend/Cargo.toml backend/Cargo.lock ./
-COPY backend/src ./src
-COPY backend/build.rs ./
+# Install musl target
+RUN rustup target add x86_64-unknown-linux-musl
 
-# Copy frontend build for embedding
-COPY --from=frontend-builder /app/frontend/dist ./frontend-dist
+WORKDIR /app
+
+# Copy backend files
+COPY backend/Cargo.toml backend/Cargo.lock ./backend/
+COPY backend/src ./backend/src
+COPY backend/build.rs ./backend/
+
+# Copy frontend build to project root (where build.rs expects it)
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 # Build static binary
+WORKDIR /app/backend
 ENV RUSTFLAGS="-C target-feature=-crt-static"
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
 # Stage 3: Final minimal image
-FROM scratch
+FROM alpine:3.19
 
-# Copy CA certificates for HTTPS
-COPY --from=backend-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# Install CA certificates
+RUN apk add --no-cache ca-certificates
+
+# Create non-root user
+RUN adduser -D -u 1000 hsn
 
 # Copy binary
-COPY --from=backend-builder /app/backend/target/x86_64-unknown-linux-musl/release/home-server-navigator /home-server-navigator
+COPY --from=backend-builder /app/backend/target/x86_64-unknown-linux-musl/release/home-server-navigator /usr/local/bin/home-server-navigator
+
+# Create data directory
+RUN mkdir -p /data && chown hsn:hsn /data
 
 # Data directory (will be mounted as volume)
 VOLUME ["/data"]
@@ -44,9 +56,8 @@ VOLUME ["/data"]
 # Expose port
 EXPOSE 8080
 
-# Run as non-root (scratch doesn't support user)
-# Use numeric uid for compatibility
-USER 1000:1000
+# Run as non-root user
+USER hsn
 
-ENTRYPOINT ["/home-server-navigator"]
+ENTRYPOINT ["/usr/local/bin/home-server-navigator"]
 CMD ["--host", "0.0.0.0", "--port", "8080", "--data-file", "/data/services.json"]
