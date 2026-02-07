@@ -1,0 +1,20 @@
+[Unit]
+Description=Home Server Navigator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/home-server-navigator
+ExecStart=/usr/local/bin/home-server-navigator --host ${HOST} --port ${PORT} --default-host ${DEFAULT_HOST} --data-file ${DATA_FILE}
+Restart=on-failure
+RestartSec=2
+
+# Security hardening (safe defaults for a home server)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
