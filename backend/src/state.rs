@@ -268,7 +268,7 @@ fn matches_query(entry: &ServiceEntry, query: &ServiceQuery) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ServiceProtocol, ServiceSource};
+    use crate::models::{ServiceProtocol, ServiceSource, ServiceStatus};
 
     #[test]
     fn query_filters_by_text() {
