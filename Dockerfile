@@ -12,7 +12,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build backend
-FROM rust:1.75-alpine AS backend-builder
+FROM rust:1.78-alpine AS backend-builder
 
 # Install build dependencies
 RUN apk add --no-cache musl-dev pkgconfig perl make
