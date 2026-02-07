@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background -->
+  <rect width="100" height="100" rx="16" fill="#0a0c14"/>
+  
+  <!-- House shape -->
+  <path d="M50 18 L78 40 L78 75 C78 79.4 74.4 83 70 83 L30 83 C25.6 83 22 79.4 22 75 L22 40 Z" 
+        fill="none" stroke="#5b8cff" stroke-width="4" stroke-linejoin="round"/>
+  
+  <!-- Server lines inside house -->
+  <rect x="34" y="52" width="32" height="6" rx="2" fill="#5b8cff"/>
+  <rect x="34" y="62" width="24" height="6" rx="2" fill="#5b8cff"/>
+  <rect x="34" y="72" width="28" height="6" rx="2" fill="#5b8cff"/>
+  
+  <!-- Small indicator dot -->
+  <circle cx="72" cy="30" r="6" fill="#3ccf4a"/>
+</svg>

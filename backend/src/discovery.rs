@@ -76,7 +76,7 @@ impl DiscoveryEngine {
             let primary_port = select_primary_port(&ports);
             let host = self.default_host.clone();
             let client = self.http_client.clone();
-            
+
             // Create detection task for each service
             let detection = async move {
                 let protocol = if let Some(port) = primary_port {
@@ -160,9 +160,10 @@ async fn is_http_response(client: &reqwest::Client, url: &str) -> Result<bool> {
             // Connection refused means nothing is listening
             // Other errors might indicate HTTP is working but with issues
             let err_str = e.to_string().to_lowercase();
-            if err_str.contains("connection refused") 
-                || err_str.contains("timeout") 
-                || err_str.contains("unable to connect") {
+            if err_str.contains("connection refused")
+                || err_str.contains("timeout")
+                || err_str.contains("unable to connect")
+            {
                 Ok(false)
             } else {
                 // Likely an HTTP protocol error (cert issue, etc.)
